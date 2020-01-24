@@ -1,0 +1,101 @@
+#cloud-config
+
+# Update/Upgrade, Reboot if required
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+packages:
+  # General security
+  - fail2ban
+  - ufw
+  - unattended-upgrades
+
+# Disable root access
+disable_root: true
+
+# Set Locale
+locale: en_US.UTF-8
+timezone: Europe/London
+
+users:
+  - default
+  - name: ${username}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: users, admin
+    ssh_import_id: None
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "${sshkey-admin}"
+    shell: /bin/bash
+
+write_files:
+- owner: root:root
+  path: /etc/ssh/sshd_config
+  permissions: '0644'
+  content: |
+    # This file was inserted via cloud-init.yaml
+
+    # Authentication:
+    PermitRootLogin no
+    MaxAuthTries 2
+    MaxSessions 3
+
+    PasswordAuthentication no
+    PermitEmptyPasswords no
+
+    ChallengeResponseAuthentication no
+
+    UsePAM yes
+
+    AllowAgentForwarding no
+    AllowTcpForwarding no
+    X11Forwarding no
+    PrintMotd no
+    TCPKeepAlive no
+
+    # override default of no subsystems
+    Subsystem sftp	/usr/lib/openssh/sftp-server
+
+    Protocol 2
+    AllowUsers ${username}
+- owner: root:root
+  path: /etc/fail2ban/jail.local
+  permissions: '0644'
+  content: |
+    [DEFAULT]
+    ignoreip = 127.0.0.1/8
+    # 24h
+    bantime  = 86400
+    # 3h
+    findtime = 10800
+    maxretry = 2
+
+    [ssh]
+    enabled  = true
+    port     = ssh
+    filter   = sshd
+    logpath  = /var/log/auth.log
+    maxretry = 2
+    banaction = iptables-allports
+
+runcmd:
+  # Delete passwords
+  - passwd -d root
+  # Restart services
+  - service ssh restart
+  - service fail2ban restart
+  # UFW
+  - echo "Setting up ufw.."
+  - ufw default allow outgoing
+  - ufw default deny incoming
+  - ufw allow ssh
+  - ufw allow http
+  - ufw allow https
+  - ufw disable
+  - ufw enable
+  # Finish
+  - echo "Done."
+  - touch /cloud-init-ran
+
+final_message: "The system is up after $UPTIME seconds"
